@@ -11,10 +11,18 @@ struct LogEntry {
     std::string message;
 };
 
+bool isValidLevel(const std::string& level) {
+    return level == "INFO" || level == "WARN" || level == "ERROR";
+}
+
 bool parseLine(const std::string& line, LogEntry& e) {
     std::istringstream ss(line);
 
     if (!(ss >> e.date >> e.time >> e.level >> e.code)) {
+        return false;
+    }
+
+    if (!isValidLevel(e.level)) {
         return false;
     }
 
@@ -25,17 +33,25 @@ bool parseLine(const std::string& line, LogEntry& e) {
     return true;
 }
 
-int main() {
-    std::ifstream file("data/sample.log");
+int main(int argc, char* argv[]) {
+    std::string path = "data/sample.log";
+    if (argc > 1) {
+        path = argv[1];
+    }
+
+    std::ifstream file(path);
 
     if (!file.is_open()) {
-        std::cerr << "File nahi khuli!\n";
+        std::cerr << "File nahi khuli: " << path << "\n";
         return 1;
     }
 
     std::string line;
     int parsed = 0;
     int bad = 0;
+    int infos = 0;
+    int warns = 0;
+    int errors = 0;
 
     while (std::getline(file, line)) {
         LogEntry e;
@@ -45,16 +61,19 @@ int main() {
         }
         parsed++;
 
-        if (parsed <= 3) {
-            std::cout << "Date:    " << e.date    << "\n";
-            std::cout << "Time:    " << e.time    << "\n";
-            std::cout << "Level:   " << e.level   << "\n";
-            std::cout << "Code:    " << e.code    << "\n";
-            std::cout << "Message: " << e.message << "\n";
-            std::cout << "---\n";
+        if (e.level == "ERROR") {
+            errors++;
+        } else if (e.level == "WARN") {
+            warns++;
+        } else {
+            infos++;
         }
     }
 
+    std::cout << "File:   " << path << "\n";
     std::cout << "Parsed: " << parsed << "  Bad lines: " << bad << "\n";
+    std::cout << "INFO:   " << infos  << "\n";
+    std::cout << "WARN:   " << warns  << "\n";
+    std::cout << "ERROR:  " << errors << "\n";
     return 0;
 }
