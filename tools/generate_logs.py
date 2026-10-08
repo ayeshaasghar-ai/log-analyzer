@@ -1,3 +1,4 @@
+import sys
 import random
 from datetime import datetime, timedelta
 
@@ -12,11 +13,13 @@ LEVELS_CODES = [
 
 def generate(path, n_lines=10000):
     t = datetime(2026, 10, 5, 0, 0, 0)
+    spike_start = int(n_lines * 0.6)
+    spike_end = spike_start + 300
     with open(path, "w") as f:
         for i in range(n_lines):
             t += timedelta(seconds=random.randint(1, 8))
             # Beech mein ek artificial spike: AUTH_FAILED ki bauchhar
-            if 6000 <= i < 6300:
+            if spike_start <= i < spike_end:
                 level, code, msg = "ERROR", "AUTH_FAILED", "Invalid credentials"
             else:
                 level, code, msg = random.choices(
@@ -24,5 +27,7 @@ def generate(path, n_lines=10000):
             f.write(f"{t:%Y-%m-%d %H:%M:%S} {level} {code} {msg}\n")
 
 if __name__ == "__main__":
-    generate("data/sample.log", 10000)
-    print("Done: data/sample.log")
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 10000
+    out = sys.argv[2] if len(sys.argv) > 2 else "data/sample.log"
+    generate(out, n)
+    print(f"Done: {out} ({n} lines)")
