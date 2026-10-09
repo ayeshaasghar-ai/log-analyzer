@@ -3,6 +3,9 @@
 #include <sstream>
 #include <string>
 #include <cctype>
+#include <vector>
+#include <algorithm>
+#include <unordered_map>
 
 struct LogEntry {
     std::string date;
@@ -59,11 +62,9 @@ bool parseLine(const std::string& rawLine, LogEntry& e) {
     if (!(ss >> e.date >> e.time >> e.level >> e.code)) {
         return false;
     }
-
     if (!isValidDate(e.date) || !isValidTime(e.time)) {
         return false;
     }
-
     if (!isValidLevel(e.level)) {
         return false;
     }
@@ -71,6 +72,23 @@ bool parseLine(const std::string& rawLine, LogEntry& e) {
     std::getline(ss, e.message);
     e.message = trim(e.message);
     return true;
+}
+
+typedef std::vector<std::pair<std::string, int>> Items;
+
+void sortItems(Items& items) {
+    std::sort(items.begin(), items.end(),
+        [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+            if (a.second != b.second) return a.second > b.second;
+            return a.first < b.first;
+        });
+}
+
+void printItems(const std::string& title, const Items& items, size_t limit) {
+    std::cout << title << "\n";
+    for (size_t i = 0; i < items.size() && i < limit; i++) {
+        std::cout << "  " << items[i].first << ": " << items[i].second << "\n";
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -81,11 +99,13 @@ int main(int argc, char* argv[]) {
     bool show = (argc > 2);
 
     std::ifstream file(path);
-
     if (!file.is_open()) {
         std::cerr << "File nahi khuli: " << path << "\n";
         return 1;
     }
+
+    std::unordered_map<std::string, int> codeCount;
+    std::unordered_map<std::string, int> errorCodeCount;
 
     std::string line;
     int parsed = 0;
@@ -120,6 +140,11 @@ int main(int argc, char* argv[]) {
         } else {
             infos++;
         }
+
+        codeCount[e.code]++;
+        if (e.level == "ERROR") {
+            errorCodeCount[e.code]++;
+        }
     }
 
     std::cout << "File:   " << path << "\n";
@@ -128,5 +153,18 @@ int main(int argc, char* argv[]) {
     std::cout << "INFO:   " << infos  << "\n";
     std::cout << "WARN:   " << warns  << "\n";
     std::cout << "ERROR:  " << errors << "\n";
+
+    Items allItems(codeCount.begin(), codeCount.end());
+    sortItems(allItems);
+    printItems("All codes (most frequent first):", allItems, 10);
+
+    Items errItems(errorCodeCount.begin(), errorCodeCount.end());
+    sortItems(errItems);
+    printItems("ERROR codes (most frequent first):", errItems, 10);
+
+    if (!errItems.empty()) {
+        std::cout << "Most frequent error: " << errItems[0].first
+                  << " (" << errItems[0].second << " times)\n";
+    }
     return 0;
 }
