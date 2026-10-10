@@ -1,3 +1,4 @@
 loganalyzer
 loganalyzer.exe
 data/*.log
+*.exe
