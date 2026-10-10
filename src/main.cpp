@@ -5,7 +5,7 @@
 #include <cctype>
 #include <vector>
 #include <algorithm>
-#include <unordered_map>
+#include "hashmap.h"
 
 struct LogEntry {
     std::string date;
@@ -93,10 +93,22 @@ void printItems(const std::string& title, const Items& items, size_t limit) {
 
 int main(int argc, char* argv[]) {
     std::string path = "data/sample.log";
-    if (argc > 1) {
-        path = argv[1];
+    bool show = false;
+    std::string queryCode;
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--show") {
+            show = true;
+        } else if (arg == "--code" && i + 1 < argc) {
+            queryCode = argv[++i];
+        } else if (arg.rfind("--", 0) == 0) {
+            std::cerr << "Unknown option: " << arg << "\n";
+            return 1;
+        } else {
+            path = arg;
+        }
     }
-    bool show = (argc > 2);
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -104,8 +116,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::unordered_map<std::string, int> codeCount;
-    std::unordered_map<std::string, int> errorCodeCount;
+    StringIntMap codeCount;
+    StringIntMap errorCodeCount;
+    StringIntMap errorsPerHour;
 
     std::string line;
     int parsed = 0;
@@ -133,17 +146,16 @@ int main(int argc, char* argv[]) {
                       << " [" << e.message << "]\n";
         }
 
+        codeCount.increment(e.code);
+
         if (e.level == "ERROR") {
             errors++;
+            errorCodeCount.increment(e.code);
+            errorsPerHour.increment(e.date + " " + e.time.substr(0, 2));
         } else if (e.level == "WARN") {
             warns++;
         } else {
             infos++;
-        }
-
-        codeCount[e.code]++;
-        if (e.level == "ERROR") {
-            errorCodeCount[e.code]++;
         }
     }
 
@@ -154,17 +166,26 @@ int main(int argc, char* argv[]) {
     std::cout << "WARN:   " << warns  << "\n";
     std::cout << "ERROR:  " << errors << "\n";
 
-    Items allItems(codeCount.begin(), codeCount.end());
+    Items allItems = codeCount.items();
     sortItems(allItems);
     printItems("All codes (most frequent first):", allItems, 10);
 
-    Items errItems(errorCodeCount.begin(), errorCodeCount.end());
+    Items errItems = errorCodeCount.items();
     sortItems(errItems);
     printItems("ERROR codes (most frequent first):", errItems, 10);
 
     if (!errItems.empty()) {
         std::cout << "Most frequent error: " << errItems[0].first
                   << " (" << errItems[0].second << " times)\n";
+    }
+
+    Items hourItems = errorsPerHour.items();
+    sortItems(hourItems);
+    printItems("Busiest hours (ERROR count):", hourItems, 3);
+
+    if (!queryCode.empty()) {
+        std::cout << "Query: code " << queryCode << " appeared "
+                  << codeCount.get(queryCode) << " times\n";
     }
     return 0;
 }
