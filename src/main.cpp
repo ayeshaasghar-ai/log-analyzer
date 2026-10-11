@@ -5,6 +5,8 @@
 #include <cctype>
 #include <vector>
 #include <algorithm>
+#include <queue>
+#include <cstdlib>
 #include "hashmap.h"
 
 struct LogEntry {
@@ -91,9 +93,39 @@ void printItems(const std::string& title, const Items& items, size_t limit) {
     }
 }
 
+typedef std::pair<std::string, int> Item;
+
+// true agar a, b se "behtar" hai: zyada ginti, ya barabar ginti par chhota naam
+bool isBetter(const Item& a, const Item& b) {
+    if (a.second != b.second) return a.second > b.second;
+    return a.first < b.first;
+}
+
+// Min-heap of size K: upar hamesha sabse "kharab" item rehta hai.
+// Naya item aaye to push karo; K se zyada ho jaye to upar wala (sabse kharab) nikaal do.
+Items topK(const Items& items, size_t k) {
+    std::priority_queue<Item, std::vector<Item>,
+                        bool (*)(const Item&, const Item&)> heap(isBetter);
+    for (size_t i = 0; i < items.size(); i++) {
+        heap.push(items[i]);
+        if (heap.size() > k) {
+            heap.pop();
+        }
+    }
+    Items result;
+    while (!heap.empty()) {
+        result.push_back(heap.top());
+        heap.pop();
+    }
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
 int main(int argc, char* argv[]) {
     std::string path = "data/sample.log";
     bool show = false;
+    bool checkTop = false;
+    int topN = 3;
     std::string queryCode;
 
     for (int i = 1; i < argc; i++) {
@@ -102,6 +134,14 @@ int main(int argc, char* argv[]) {
             show = true;
         } else if (arg == "--code" && i + 1 < argc) {
             queryCode = argv[++i];
+        } else if (arg == "--top" && i + 1 < argc) {
+            topN = std::atoi(argv[++i]);
+            if (topN <= 0) {
+                std::cerr << "--top needs a positive number\n";
+                return 1;
+            }
+        } else if (arg == "--check-top") {
+            checkTop = true;
         } else if (arg.rfind("--", 0) == 0) {
             std::cerr << "Unknown option: " << arg << "\n";
             return 1;
@@ -180,8 +220,17 @@ int main(int argc, char* argv[]) {
     }
 
     Items hourItems = errorsPerHour.items();
-    sortItems(hourItems);
-    printItems("Busiest hours (ERROR count):", hourItems, 3);
+    Items busiest = topK(hourItems, static_cast<size_t>(topN));
+    printItems("Busiest hours (ERROR count):", busiest, busiest.size());
+
+    if (checkTop) {
+        sortItems(hourItems);
+        if (hourItems.size() > static_cast<size_t>(topN)) {
+            hourItems.resize(static_cast<size_t>(topN));
+        }
+        std::cout << "Top-K heap matches full sort: "
+                  << (hourItems == busiest ? "YES" : "NO") << "\n";
+    }
 
     if (!queryCode.empty()) {
         std::cout << "Query: code " << queryCode << " appeared "
