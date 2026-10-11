@@ -58,5 +58,6 @@ Counting errors per hour (median of 3 runs, 1,000,000 lines, 1,251 distinct hour
 
 Own hash map was about 70x faster than the vector and about 13% slower
 than std::unordered_map.
+
 Scaling: when the input grew 10x (100K to 1M lines), the hash map time grew
 about 9x, while the vector time grew about 60x.
