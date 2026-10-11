@@ -6,7 +6,7 @@ structures chosen for the job: a hash map, a heap, a deque and a segment tree.
 ## Status
 - Week 1: log generator, parser, input validation, level counts
 - Week 2: custom hash map (chaining + rehash), error code counts,
-  busiest hour, code lookup, benchmarks
+  busiest hour, code lookup, benchmarks, 26 automatic checks
 
 ## How to run
 ```
@@ -22,6 +22,11 @@ Options:
 Large test file:
 ```
 python tools/generate_logs.py 1000000 data/big.log
+```
+
+Run all checks (compiles everything and verifies results):
+```
+python tools/run_tests.py
 ```
 
 ## Log format
@@ -44,6 +49,7 @@ Parsing 1,000,000 lines (57 MB):
 - Week 2 (parser + three hash maps): 0.86 s
 
 Counting errors per hour (median of 3 runs, 1,000,000 lines, 1,251 distinct hours):
+
 | Method | Time |
 |---|---|
 | Vector with linear search | 3.47 s |
