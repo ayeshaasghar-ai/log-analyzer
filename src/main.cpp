@@ -5,9 +5,9 @@
 #include <cctype>
 #include <vector>
 #include <algorithm>
-#include <queue>
 #include <cstdlib>
 #include "hashmap.h"
+#include "minheap.h"
 
 struct LogEntry {
     std::string date;
@@ -101,11 +101,15 @@ bool isBetter(const Item& a, const Item& b) {
     return a.first < b.first;
 }
 
-// Min-heap of size K: upar hamesha sabse "kharab" item rehta hai.
-// Naya item aaye to push karo; K se zyada ho jaye to upar wala (sabse kharab) nikaal do.
+// true agar a, b se "kharab" hai: heap mein kharab item upar rakhna hai
+bool isWorse(const Item& a, const Item& b) {
+    return isBetter(b, a);
+}
+
+// Apne heap (size K) se top K: upar hamesha sabse "kharab" item rehta hai.
+// K se zyada ho jaye to upar wala (sabse kharab) nikaal do.
 Items topK(const Items& items, size_t k) {
-    std::priority_queue<Item, std::vector<Item>,
-                        bool (*)(const Item&, const Item&)> heap(isBetter);
+    ItemHeap heap(isWorse);
     for (size_t i = 0; i < items.size(); i++) {
         heap.push(items[i]);
         if (heap.size() > k) {

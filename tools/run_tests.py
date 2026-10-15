@@ -10,6 +10,7 @@ os.chdir(ROOT)
 EXE = ".exe" if os.name == "nt" else ""
 MAIN = os.path.abspath("loganalyzer" + EXE)
 TESTMAP = os.path.abspath("test_hashmap" + EXE)
+TESTHEAP = os.path.abspath("test_minheap" + EXE)
 BENCH = os.path.abspath("bench_maps" + EXE)
 
 CHECK_LOG = os.path.join("data", "_check.log")
@@ -36,6 +37,7 @@ def compile_all():
     jobs = [
         ("src/main.cpp", "loganalyzer"),
         ("src/test_hashmap.cpp", "test_hashmap"),
+        ("src/test_minheap.cpp", "test_minheap"),
         ("src/bench_maps.cpp", "bench_maps"),
     ]
     for src, out in jobs:
@@ -65,6 +67,22 @@ def section_total(text, title):
             else:
                 break
     return total
+
+
+def section_items(text, title):
+    items = []
+    inside = False
+    for line in text.splitlines():
+        if line.startswith(title):
+            inside = True
+            continue
+        if inside:
+            m = re.match(r"\s+(.+): (\d+)$", line)
+            if m:
+                items.append((m.group(1), int(m.group(2))))
+            else:
+                break
+    return items
 
 
 def python_truth(path):
@@ -119,6 +137,20 @@ def main_checks():
     expected = f"{top_hour[0]}: {top_hour[1]}"
     check(f"busiest hour = {expected}", expected in text)
 
+    ranked = sorted(hours.items(), key=lambda kv: (-kv[1], kv[0]))
+    for k in (1, 3, 5, 100):
+        _, t = run([MAIN, CHECK_LOG, "--top", str(k), "--check-top"])
+        got = section_items(t, "Busiest hours")
+        want = ranked[:k]
+        ok = got == want and "Top-K heap matches full sort: YES" in t
+        check(f"--top {k}: heap result equals Python's top {k}", ok,
+              f"got {got[:3]} want {want[:3]}")
+
+    code, t = run([MAIN, CHECK_LOG, "--top", "0"])
+    check("--top 0 rejected", code != 0 and "positive number" in t)
+    code, t = run([MAIN, CHECK_LOG, "--top", "abc"])
+    check("--top abc rejected", code != 0 and "positive number" in t)
+
     code, t = run([MAIN, CHECK_LOG, "--abc"])
     check("unknown option rejected", code != 0 and "Unknown option: --abc" in t)
 
@@ -155,6 +187,9 @@ def edge_checks():
 def other_programs():
     code, text = run([TESTMAP])
     check("test_hashmap: TEST PASSED", code == 0 and "TEST PASSED" in text, text[:200])
+
+    code, text = run([TESTHEAP])
+    check("test_minheap: TEST PASSED", code == 0 and "TEST PASSED" in text, text[:300])
 
     code, text = run([BENCH, CHECK_LOG])
     check("bench_maps: all three agree", code == 0 and "All three agree: YES" in text,
