@@ -6,6 +6,7 @@ import sys
 # Project root (is file ke ek folder upar), wahin se sab chalega
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
+os.makedirs("data", exist_ok=True)   # fresh clone mein data/ folder nahi hota
 
 EXE = ".exe" if os.name == "nt" else ""
 MAIN = os.path.abspath("loganalyzer" + EXE)

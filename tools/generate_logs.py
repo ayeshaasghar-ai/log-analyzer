@@ -1,3 +1,4 @@
+import os
 import sys
 import random
 from datetime import datetime, timedelta
@@ -12,6 +13,9 @@ LEVELS_CODES = [
 ]
 
 def generate(path, n_lines=10000):
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)   # data/ folder na ho to bana do
     t = datetime(2026, 10, 5, 0, 0, 0)
     spike_start = int(n_lines * 0.6)
     spike_end = spike_start + 300
