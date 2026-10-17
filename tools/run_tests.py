@@ -12,6 +12,7 @@ MAIN = os.path.abspath("loganalyzer" + EXE)
 TESTMAP = os.path.abspath("test_hashmap" + EXE)
 TESTHEAP = os.path.abspath("test_minheap" + EXE)
 BENCH = os.path.abspath("bench_maps" + EXE)
+BENCHTOPK = os.path.abspath("bench_topk" + EXE)
 
 CHECK_LOG = os.path.join("data", "_check.log")
 EDGE_LOG = os.path.join("data", "_edge.log")
@@ -39,6 +40,7 @@ def compile_all():
         ("src/test_hashmap.cpp", "test_hashmap"),
         ("src/test_minheap.cpp", "test_minheap"),
         ("src/bench_maps.cpp", "bench_maps"),
+        ("src/bench_topk.cpp", "bench_topk"),
     ]
     for src, out in jobs:
         code, text = run(["g++", "-std=c++17", "-O2", src, "-o", out + EXE])
@@ -194,6 +196,9 @@ def other_programs():
     code, text = run([BENCH, CHECK_LOG])
     check("bench_maps: all three agree", code == 0 and "All three agree: YES" in text,
           text[-200:])
+    code, text = run([BENCHTOPK, CHECK_LOG, "--level", "hour", "--k", "3"])
+    check("bench_topk: all methods agree",
+          code == 0 and "All methods agree: YES" in text, text[-200:])
 
 
 def cleanup():

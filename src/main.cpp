@@ -109,13 +109,16 @@ bool isWorse(const Item& a, const Item& b) {
 // Apne heap (size K) se top K: upar hamesha sabse "kharab" item rehta hai.
 // K se zyada ho jaye to upar wala (sabse kharab) nikaal do.
 Items topK(const Items& items, size_t k) {
-    ItemHeap heap(isWorse);
+        ItemHeap heap(isWorse);
     for (size_t i = 0; i < items.size(); i++) {
-        heap.push(items[i]);
-        if (heap.size() > k) {
+        if (heap.size() < k) {
+            heap.push(items[i]);
+        } else if (isBetter(items[i], heap.top())) {
             heap.pop();
+            heap.push(items[i]);
         }
     }
+
     Items result;
     while (!heap.empty()) {
         result.push_back(heap.top());
