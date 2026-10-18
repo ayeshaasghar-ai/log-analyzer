@@ -6,10 +6,10 @@
 #include <vector>
 #include <algorithm>
 #include <cstdlib>
-#include <deque>
 #include "hashmap.h"
 #include "minheap.h"
 #include "timeutil.h"
+#include "ringdeque.h"
 
 struct LogEntry {
     std::string date;
@@ -197,7 +197,7 @@ int main(int argc, char* argv[]) {
     int warns = 0;
     int errors = 0;
 
-    std::deque<long long> window;     // pichhle W seconds ke ERROR events ka time
+    RingDeque window;     // pichhle W seconds ke ERROR events ka time (apna deque)
     std::vector<Alert> alerts;
     Alert current = Alert();
     bool inAlert = false;
