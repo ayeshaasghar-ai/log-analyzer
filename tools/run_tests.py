@@ -12,6 +12,7 @@ EXE = ".exe" if os.name == "nt" else ""
 MAIN = os.path.abspath("loganalyzer" + EXE)
 TESTMAP = os.path.abspath("test_hashmap" + EXE)
 TESTHEAP = os.path.abspath("test_minheap" + EXE)
+TESTTIME = os.path.abspath("test_timeutil" + EXE)
 BENCH = os.path.abspath("bench_maps" + EXE)
 BENCHTOPK = os.path.abspath("bench_topk" + EXE)
 
@@ -40,6 +41,7 @@ def compile_all():
         ("src/main.cpp", "loganalyzer"),
         ("src/test_hashmap.cpp", "test_hashmap"),
         ("src/test_minheap.cpp", "test_minheap"),
+        ("src/test_timeutil.cpp", "test_timeutil"),
         ("src/bench_maps.cpp", "bench_maps"),
         ("src/bench_topk.cpp", "bench_topk"),
     ]
@@ -193,6 +195,9 @@ def other_programs():
 
     code, text = run([TESTHEAP])
     check("test_minheap: TEST PASSED", code == 0 and "TEST PASSED" in text, text[:300])
+
+    code, text = run([TESTTIME])
+    check("test_timeutil: TEST PASSED", code == 0 and "TEST PASSED" in text, text[:300])
 
     code, text = run([BENCH, CHECK_LOG])
     check("bench_maps: all three agree", code == 0 and "All three agree: YES" in text,
