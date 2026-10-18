@@ -6,8 +6,10 @@
 #include <vector>
 #include <algorithm>
 #include <cstdlib>
+#include <deque>
 #include "hashmap.h"
 #include "minheap.h"
+#include "timeutil.h"
 
 struct LogEntry {
     std::string date;
@@ -107,9 +109,10 @@ bool isWorse(const Item& a, const Item& b) {
 }
 
 // Apne heap (size K) se top K: upar hamesha sabse "kharab" item rehta hai.
-// K se zyada ho jaye to upar wala (sabse kharab) nikaal do.
+// Heap bhar jane ke baad naya item tabhi andar aata hai jab wo upar wale
+// (sabse kharab) se behtar ho; warna ek hi tulna mein reject.
 Items topK(const Items& items, size_t k) {
-        ItemHeap heap(isWorse);
+    ItemHeap heap(isWorse);
     for (size_t i = 0; i < items.size(); i++) {
         if (heap.size() < k) {
             heap.push(items[i]);
@@ -118,7 +121,6 @@ Items topK(const Items& items, size_t k) {
             heap.push(items[i]);
         }
     }
-
     Items result;
     while (!heap.empty()) {
         result.push_back(heap.top());
@@ -128,11 +130,21 @@ Items topK(const Items& items, size_t k) {
     return result;
 }
 
+struct Alert {
+    std::string start;      // alert kab shuru hua
+    std::string end;        // kab khatam hua
+    std::string peakAt;     // peak kis waqt aaya
+    int peak;               // window mein sabse zyada errors
+    bool ongoing;           // file khatam hone tak chal raha tha
+};
+
 int main(int argc, char* argv[]) {
     std::string path = "data/sample.log";
     bool show = false;
     bool checkTop = false;
     int topN = 3;
+    int spikeWindow = 0;
+    int spikeThreshold = 0;
     std::string queryCode;
 
     for (int i = 1; i < argc; i++) {
@@ -149,6 +161,16 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg == "--check-top") {
             checkTop = true;
+        } else if (arg == "--spike" && i + 2 < argc) {
+            spikeWindow = std::atoi(argv[++i]);
+            spikeThreshold = std::atoi(argv[++i]);
+            if (spikeWindow <= 0 || spikeThreshold <= 0) {
+                std::cerr << "--spike needs two positive numbers: window seconds and threshold\n";
+                return 1;
+            }
+        } else if (arg == "--spike") {
+            std::cerr << "--spike needs two positive numbers: window seconds and threshold\n";
+            return 1;
         } else if (arg.rfind("--", 0) == 0) {
             std::cerr << "Unknown option: " << arg << "\n";
             return 1;
@@ -175,6 +197,15 @@ int main(int argc, char* argv[]) {
     int warns = 0;
     int errors = 0;
 
+    std::deque<long long> window;     // pichhle W seconds ke ERROR events ka time
+    std::vector<Alert> alerts;
+    Alert current = Alert();
+    bool inAlert = false;
+    bool haveLast = false;
+    long long lastTs = 0;
+    std::string lastStamp;
+    int outOfOrder = 0;
+
     while (std::getline(file, line)) {
         if (line.find_first_not_of(" \t\r") == std::string::npos) {
             blank++;
@@ -193,6 +224,46 @@ int main(int argc, char* argv[]) {
                       << " [" << e.message << "]\n";
         }
 
+        if (spikeWindow > 0) {
+            long long ts = toEpochSeconds(e.date, e.time);
+            std::string stamp = e.date + " " + e.time;
+            if (haveLast && ts < lastTs) {
+                outOfOrder++;                       // time peeche gaya: is line ko chhod do
+            } else {
+                haveLast = true;
+                lastTs = ts;
+                lastStamp = stamp;
+
+                // 1) Window se bahar gaye purane events aage se nikaalo
+                while (!window.empty() && window.front() <= ts - spikeWindow) {
+                    window.pop_front();
+                }
+                // 2) ERROR ho to peeche se jodo
+                if (e.level == "ERROR") {
+                    window.push_back(ts);
+                }
+                // 3) Window mein kitne errors hain?
+                int count = static_cast<int>(window.size());
+                if (count >= spikeThreshold) {
+                    if (!inAlert) {
+                        inAlert = true;
+                        current = Alert();
+                        current.start = stamp;
+                        current.peak = count;
+                        current.peakAt = stamp;
+                    } else if (count > current.peak) {
+                        current.peak = count;
+                        current.peakAt = stamp;
+                    }
+                } else if (inAlert) {
+                    current.end = stamp;
+                    current.ongoing = false;
+                    alerts.push_back(current);
+                    inAlert = false;
+                }
+            }
+        }
+
         codeCount.increment(e.code);
 
         if (e.level == "ERROR") {
@@ -204,6 +275,12 @@ int main(int argc, char* argv[]) {
         } else {
             infos++;
         }
+    }
+
+    if (inAlert) {
+        current.end = lastStamp;
+        current.ongoing = true;
+        alerts.push_back(current);
     }
 
     std::cout << "File:   " << path << "\n";
@@ -237,6 +314,26 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "Top-K heap matches full sort: "
                   << (hourItems == busiest ? "YES" : "NO") << "\n";
+    }
+
+    if (spikeWindow > 0) {
+        std::cout << "Spike alerts (window " << spikeWindow << " s, threshold "
+                  << spikeThreshold << " errors):\n";
+        for (size_t i = 0; i < alerts.size(); i++) {
+            std::cout << "  ALERT " << (i + 1) << ": " << alerts[i].start
+                      << " to " << alerts[i].end
+                      << "  peak " << alerts[i].peak << " errors at "
+                      << alerts[i].peakAt;
+            if (alerts[i].ongoing) {
+                std::cout << "  (still active at end of file)";
+            }
+            std::cout << "\n";
+        }
+        std::cout << "Total spike alerts: " << alerts.size() << "\n";
+        if (outOfOrder > 0) {
+            std::cout << "Out-of-order lines skipped for spike detection: "
+                      << outOfOrder << "\n";
+        }
     }
 
     if (!queryCode.empty()) {
