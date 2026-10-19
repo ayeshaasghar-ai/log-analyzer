@@ -18,6 +18,7 @@ TESTTIME = os.path.abspath("test_timeutil" + EXE)
 TESTRING = os.path.abspath("test_ringdeque" + EXE)
 BENCH = os.path.abspath("bench_maps" + EXE)
 BENCHTOPK = os.path.abspath("bench_topk" + EXE)
+BENCHWIN = os.path.abspath("bench_window" + EXE)
 
 CHECK_LOG = os.path.join("data", "_check.log")
 EDGE_LOG = os.path.join("data", "_edge.log")
@@ -50,6 +51,7 @@ def compile_all():
         ("src/test_ringdeque.cpp", "test_ringdeque"),
         ("src/bench_maps.cpp", "bench_maps"),
         ("src/bench_topk.cpp", "bench_topk"),
+        ("src/bench_window.cpp", "bench_window"),
     ]
     for src, out in jobs:
         code, text = run(["g++", "-std=c++17", "-O2", src, "-o", out + EXE])
@@ -137,39 +139,76 @@ def spike_truth(path, window, threshold):
             count = len(errs) - bisect.bisect_right(errs, ts - window)
             if count >= threshold:
                 if cur is None:
-                    cur = {"start": stamp, "peak": count, "peak_at": stamp}
+                    cur = {"start": stamp, "start_ts": ts, "peak": count,
+                           "peak_at": stamp, "merged": 1}
                 elif count > cur["peak"]:
                     cur["peak"] = count
                     cur["peak_at"] = stamp
             elif cur is not None:
                 cur["end"] = stamp
+                cur["end_ts"] = ts
                 cur["ongoing"] = False
                 alerts.append(cur)
                 cur = None
     if cur is not None:
         cur["end"] = last_stamp
+        cur["end_ts"] = last_ts
         cur["ongoing"] = True
         alerts.append(cur)
     return alerts, out_of_order
 
 
+def merge_truth(alerts, gap):
+    """Paas paas ke alerts ko jodo (Python ka apna hisaab)."""
+    out = []
+    for a in alerts:
+        if out and a["start_ts"] - out[-1]["end_ts"] <= gap:
+            last = out[-1]
+            last["end"] = a["end"]
+            last["end_ts"] = a["end_ts"]
+            last["ongoing"] = a["ongoing"]
+            last["merged"] += a["merged"]
+            if a["peak"] > last["peak"]:
+                last["peak"] = a["peak"]
+                last["peak_at"] = a["peak_at"]
+        else:
+            out.append(dict(a))
+    return out
+
+
+def visible(alerts):
+    return [{"start": a["start"], "end": a["end"], "peak": a["peak"],
+             "peak_at": a["peak_at"], "ongoing": a["ongoing"], "merged": a["merged"]}
+            for a in alerts]
+
+
 def parse_alerts(text):
     alerts = []
     pattern = (r"ALERT \d+: (\S+ \S+) to (\S+ \S+)  peak (\d+) errors at (\S+ \S+)"
-               r"(  \(still active at end of file\))?")
+               r"(?:  \[(\d+) alerts merged\])?(  \(still active at end of file\))?")
     for m in re.finditer(pattern, text):
         alerts.append({"start": m.group(1), "end": m.group(2),
                        "peak": int(m.group(3)), "peak_at": m.group(4),
-                       "ongoing": m.group(5) is not None})
+                       "ongoing": m.group(6) is not None,
+                       "merged": int(m.group(5)) if m.group(5) else 1})
     return alerts
 
 
 def spike_checks():
-    for window, threshold in ((300, 40), (300, 14), (60, 6)):
-        _, t = run([MAIN, CHECK_LOG, "--spike", str(window), str(threshold)])
+    configs = [(300, 40, 0), (300, 14, 0), (60, 6, 0),
+               (300, 14, 600), (60, 6, 120), (300, 40, 600)]
+    for window, threshold, gap in configs:
+        args = ["--spike", str(window), str(threshold)]
+        if gap:
+            args += ["--merge", str(gap)]
+        _, t = run([MAIN, CHECK_LOG] + args)
         got = parse_alerts(t)
-        want, _ = spike_truth(CHECK_LOG, window, threshold)
-        check(f"--spike {window} {threshold}: {len(want)} alert(s) match Python",
+        raw, _ = spike_truth(CHECK_LOG, window, threshold)
+        want = visible(merge_truth(raw, gap) if gap else raw)
+        label = f"--spike {window} {threshold}"
+        if gap:
+            label += f" --merge {gap}"
+        check(f"{label}: {len(want)} alert(s) match Python",
               got == want, f"got {got[:2]} want {want[:2]}")
 
     small = [
@@ -185,15 +224,30 @@ def spike_checks():
     ]
     with open(SPIKE_LOG, "w") as f:
         f.write("\n".join(small) + "\n")
+
+    two_alerts = [
+        {"start": "2026-10-05 10:00:04", "end": "2026-10-05 10:00:30",
+         "peak": 4, "peak_at": "2026-10-05 10:00:06", "ongoing": False, "merged": 1},
+        {"start": "2026-10-05 10:02:02", "end": "2026-10-05 10:02:02",
+         "peak": 3, "peak_at": "2026-10-05 10:02:02", "ongoing": True, "merged": 1},
+    ]
+    one_incident = [
+        {"start": "2026-10-05 10:00:04", "end": "2026-10-05 10:02:02",
+         "peak": 4, "peak_at": "2026-10-05 10:00:06", "ongoing": True, "merged": 2},
+    ]
+
     _, t = run([MAIN, SPIKE_LOG, "--spike", "10", "3"])
     got = parse_alerts(t)
-    want = [
-        {"start": "2026-10-05 10:00:04", "end": "2026-10-05 10:00:30",
-         "peak": 4, "peak_at": "2026-10-05 10:00:06", "ongoing": False},
-        {"start": "2026-10-05 10:02:02", "end": "2026-10-05 10:02:02",
-         "peak": 3, "peak_at": "2026-10-05 10:02:02", "ongoing": True},
-    ]
-    check("hand-made file: 2 alerts, second still active", got == want, str(got))
+    check("hand-made file: 2 alerts, second still active", got == two_alerts, str(got))
+
+    _, t = run([MAIN, SPIKE_LOG, "--spike", "10", "3", "--merge", "100"])
+    got = parse_alerts(t)
+    check("hand-made file: --merge 100 joins them into 1 incident",
+          got == one_incident, str(got))
+
+    _, t = run([MAIN, SPIKE_LOG, "--spike", "10", "3", "--merge", "50"])
+    got = parse_alerts(t)
+    check("hand-made file: --merge 50 keeps them separate", got == two_alerts, str(got))
 
     backwards = [
         "2026-10-05 10:00:10 ERROR A x",
@@ -210,6 +264,11 @@ def spike_checks():
         code, t = run([MAIN, CHECK_LOG] + args)
         check(f"{' '.join(args)} rejected",
               code != 0 and "--spike needs two positive numbers" in t)
+
+    for args in (["--merge", "0"], ["--merge", "abc"], ["--merge"]):
+        code, t = run([MAIN, CHECK_LOG, "--spike", "300", "40"] + args)
+        check(f"{' '.join(args)} rejected",
+              code != 0 and "--merge needs a positive number" in t)
 
 
 def main_checks():
@@ -316,6 +375,10 @@ def other_programs():
 
     code, text = run([BENCHTOPK, CHECK_LOG, "--level", "hour", "--k", "3"])
     check("bench_topk: all methods agree",
+          code == 0 and "All methods agree: YES" in text, text[-200:])
+
+    code, text = run([BENCHWIN, CHECK_LOG])
+    check("bench_window: all methods agree",
           code == 0 and "All methods agree: YES" in text, text[-200:])
 
 

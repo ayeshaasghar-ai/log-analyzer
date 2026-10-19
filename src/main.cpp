@@ -136,7 +136,33 @@ struct Alert {
     std::string peakAt;     // peak kis waqt aaya
     int peak;               // window mein sabse zyada errors
     bool ongoing;           // file khatam hone tak chal raha tha
+    long long startTs;      // shuru ka time (seconds mein)
+    long long endTs;        // khatam hone ka time (seconds mein)
+    int merged;             // kitne chhote alerts is incident mein jude hain
 };
+
+// Paas paas ke alerts ko ek incident mein jodo:
+// agar agla alert pichhle ke khatam hone ke gap seconds ke andar shuru ho jaye.
+std::vector<Alert> mergeAlerts(const std::vector<Alert>& in, long long gap) {
+    std::vector<Alert> out;
+    for (size_t i = 0; i < in.size(); i++) {
+        const Alert& a = in[i];
+        if (!out.empty() && a.startTs - out.back().endTs <= gap) {
+            Alert& last = out.back();
+            last.end = a.end;
+            last.endTs = a.endTs;
+            last.ongoing = a.ongoing;
+            last.merged += a.merged;
+            if (a.peak > last.peak) {
+                last.peak = a.peak;
+                last.peakAt = a.peakAt;
+            }
+        } else {
+            out.push_back(a);
+        }
+    }
+    return out;
+}
 
 int main(int argc, char* argv[]) {
     std::string path = "data/sample.log";
@@ -145,6 +171,7 @@ int main(int argc, char* argv[]) {
     int topN = 3;
     int spikeWindow = 0;
     int spikeThreshold = 0;
+    int mergeGap = 0;
     std::string queryCode;
 
     for (int i = 1; i < argc; i++) {
@@ -170,6 +197,15 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg == "--spike") {
             std::cerr << "--spike needs two positive numbers: window seconds and threshold\n";
+            return 1;
+        } else if (arg == "--merge" && i + 1 < argc) {
+            mergeGap = std::atoi(argv[++i]);
+            if (mergeGap <= 0) {
+                std::cerr << "--merge needs a positive number of seconds\n";
+                return 1;
+            }
+        } else if (arg == "--merge") {
+            std::cerr << "--merge needs a positive number of seconds\n";
             return 1;
         } else if (arg.rfind("--", 0) == 0) {
             std::cerr << "Unknown option: " << arg << "\n";
@@ -197,7 +233,7 @@ int main(int argc, char* argv[]) {
     int warns = 0;
     int errors = 0;
 
-    RingDeque window;     // pichhle W seconds ke ERROR events ka time (apna deque)
+    RingDeque window;     // pichhle W seconds ke ERROR events ka time
     std::vector<Alert> alerts;
     Alert current = Alert();
     bool inAlert = false;
@@ -249,6 +285,8 @@ int main(int argc, char* argv[]) {
                         inAlert = true;
                         current = Alert();
                         current.start = stamp;
+                        current.startTs = ts;
+                        current.merged = 1;
                         current.peak = count;
                         current.peakAt = stamp;
                     } else if (count > current.peak) {
@@ -257,6 +295,7 @@ int main(int argc, char* argv[]) {
                     }
                 } else if (inAlert) {
                     current.end = stamp;
+                    current.endTs = ts;
                     current.ongoing = false;
                     alerts.push_back(current);
                     inAlert = false;
@@ -279,8 +318,12 @@ int main(int argc, char* argv[]) {
 
     if (inAlert) {
         current.end = lastStamp;
+        current.endTs = lastTs;
         current.ongoing = true;
         alerts.push_back(current);
+    }
+    if (mergeGap > 0) {
+        alerts = mergeAlerts(alerts, mergeGap);
     }
 
     std::cout << "File:   " << path << "\n";
@@ -318,12 +361,19 @@ int main(int argc, char* argv[]) {
 
     if (spikeWindow > 0) {
         std::cout << "Spike alerts (window " << spikeWindow << " s, threshold "
-                  << spikeThreshold << " errors):\n";
+                  << spikeThreshold << " errors";
+        if (mergeGap > 0) {
+            std::cout << ", merge gap " << mergeGap << " s";
+        }
+        std::cout << "):\n";
         for (size_t i = 0; i < alerts.size(); i++) {
             std::cout << "  ALERT " << (i + 1) << ": " << alerts[i].start
                       << " to " << alerts[i].end
                       << "  peak " << alerts[i].peak << " errors at "
                       << alerts[i].peakAt;
+            if (alerts[i].merged > 1) {
+                std::cout << "  [" << alerts[i].merged << " alerts merged]";
+            }
             if (alerts[i].ongoing) {
                 std::cout << "  (still active at end of file)";
             }
