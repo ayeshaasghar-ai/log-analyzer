@@ -2,13 +2,17 @@
 
 A C++ tool that reads server logs and answers questions fast, using data
 structures chosen for the job: a hash map, a heap, a deque and a segment tree.
+All structures are implemented from scratch and verified against the C++
+standard library and an independent Python reference.
 
 ## Status
 - Week 1: log generator, parser, input validation, level counts
 - Week 2: custom hash map (chaining + rehash), error code counts,
   busiest hour, code lookup, benchmarks
-- Week 3: custom heap, top K busiest hours, top-K benchmarks,
-  36 automatic checks
+- Week 3: custom heap, top K busiest hours, top-K benchmarks
+- Week 4: time conversion, custom ring-buffer deque, sliding-window spike
+  alerts, incident merging, window benchmark
+- 58 automatic checks, all passing
 
 ## How to run
 ```
@@ -22,6 +26,8 @@ Options:
 - `--code AUTH_FAILED`  how many times a code appeared
 - `--top 5`  show the 5 busiest hours (default 3)
 - `--check-top`  verify the heap result against a full sort
+- `--spike 300 40`  alert when at least 40 errors occur within 300 seconds
+- `--merge 600`  join spike alerts that are at most 600 seconds apart into one incident (use with `--spike`)
 
 Large test file:
 ```
@@ -39,12 +45,32 @@ YYYY-MM-DD HH:MM:SS LEVEL CODE message
 ```
 LEVEL is INFO, WARN or ERROR. Malformed lines are counted and skipped.
 
+## Spike alerts
+A sliding window over the last W seconds keeps the timestamps of ERROR
+lines in a deque. For every line the window moves forward: old events leave
+from the front, a new error joins at the back, and the size of the deque is
+the number of errors in the window. An alert starts when this number reaches
+the threshold and ends when it falls below it. Each alert reports its start,
+end and peak.
+
+Example (a small hand-made file, window 10 s, threshold 3, merge gap 100 s):
+```
+Spike alerts (window 10 s, threshold 3 errors, merge gap 100 s):
+  ALERT 1: 2026-10-05 10:00:04 to 2026-10-05 10:02:02  peak 4 errors at 2026-10-05 10:00:06  [2 alerts merged]  (still active at end of file)
+Total spike alerts: 1
+```
+
+On the generated log, the injected burst of authentication failures is
+detected as one alert (also on the 1,000,000-line file). Timestamps are
+converted to seconds since 1970, so windows work across days and leap years
+(checked day by day from 1970 to 2100).
+
 ## Data structures
 | Data structure | Used for | Status |
 |---|---|---|
 | Hash map (own implementation, chaining + rehash) | count errors per code and per hour | done |
 | Heap (own implementation, size-K min-heap) | top K busiest hours | done |
-| Deque | sliding window spike alerts | Week 4 |
+| Deque (own ring buffer) | sliding-window spike alerts | done |
 | Segment tree | fast range queries | Week 5 |
 
 ## Benchmarks
@@ -79,3 +105,19 @@ about 15x faster than the plain heap (seconds) and about 37x faster than a
 full sort. The plain own heap and std::priority_queue were in the same range.
 All methods return the same result. When K grows to about half of n, the heap
 advantage disappears.
+
+### Sliding window (Week 4)
+Counting errors in a moving window over 1,000,000 lines, median of 3 runs (milliseconds):
+
+| Window (s) | Naive recount | std::deque | Own RingDeque |
+|---|---|---|---|
+| 300 | 16.4 | 9.4 | 8.7 |
+| 3,600 | 80.6 | 9.0 | 8.6 |
+| 14,400 | 295 | 8.8 | 8.8 |
+
+The naive method recounts the window for every line, so its time grows with
+the window: it became about 18x slower when the window grew 48 times. The
+deque does constant work per event, so its time stayed flat. At a window of
+14,400 s the own deque was about 34x faster than the naive recount. The own
+ring-buffer deque and std::deque were in the same range. All methods return
+the same result.
