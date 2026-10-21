@@ -19,6 +19,7 @@ TESTRING = os.path.abspath("test_ringdeque" + EXE)
 BENCH = os.path.abspath("bench_maps" + EXE)
 BENCHTOPK = os.path.abspath("bench_topk" + EXE)
 BENCHWIN = os.path.abspath("bench_window" + EXE)
+RANGEPREFIX = os.path.abspath("range_prefix" + EXE)
 
 CHECK_LOG = os.path.join("data", "_check.log")
 EDGE_LOG = os.path.join("data", "_edge.log")
@@ -52,6 +53,7 @@ def compile_all():
         ("src/bench_maps.cpp", "bench_maps"),
         ("src/bench_topk.cpp", "bench_topk"),
         ("src/bench_window.cpp", "bench_window"),
+        ("src/range_prefix.cpp", "range_prefix"),
     ]
     for src, out in jobs:
         code, text = run(["g++", "-std=c++17", "-O2", src, "-o", out + EXE])
@@ -355,6 +357,56 @@ def edge_checks():
     check("edge file: extra spaces trimmed",
           "WARN HIGH_MEMORY [Memory   high]" in text)
 
+def minute_of(text):
+    """'2026-10-05 07:00' ya '2026-10-05 07:00:12' ko 1970 se minutes mein badlo."""
+    fmt = "%Y-%m-%d %H:%M" if len(text) == 16 else "%Y-%m-%d %H:%M:%S"
+    dt = datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+    return int(dt.timestamp()) // 60
+
+
+def python_range_count(path, from_text, to_text):
+    """Python ka apna hisaab: [from, to) mein kitne ERROR lines (minute ke hisaab se)."""
+    lo = minute_of(from_text)
+    hi = minute_of(to_text)
+    count = 0
+    with open(path) as f:
+        for line in f:
+            parts = line.split(None, 4)
+            if len(parts) < 3 or parts[2] != "ERROR":
+                continue
+            m = minute_of(parts[0] + " " + parts[1])
+            if lo <= m < hi:
+                count += 1
+    return count
+
+
+def range_checks():
+    ranges = [
+        ("2026-10-05 07:00", "2026-10-05 08:00"),
+        ("2026-10-05 03:15", "2026-10-05 04:45"),
+        ("2026-10-05 00:00", "2026-10-06 00:00"),
+        ("2026-10-05 05:10", "2026-10-05 05:11"),
+        ("2025-01-01 00:00", "2025-01-02 00:00"),
+    ]
+    for a, b in ranges:
+        _, t = run([RANGEPREFIX, CHECK_LOG, "--from", a, "--to", b])
+        m1 = re.search(r"Brute force \(saari errors scan\):\s+(\d+)", t)
+        m2 = re.search(r"Prefix sums \(2 lookups\):\s+(\d+)", t)
+        brute = int(m1.group(1)) if m1 else -1
+        prefix = int(m2.group(1)) if m2 else -1
+        want = python_range_count(CHECK_LOG, a, b)
+        check(f"range [{a}, {b}) = {want}: both methods match Python",
+              brute == want and prefix == want and "Both agree: YES" in t,
+              f"brute {brute} prefix {prefix} python {want}")
+
+    code, t = run([RANGEPREFIX, CHECK_LOG, "--from", "2026-10-05 08:00",
+                   "--to", "2026-10-05 07:00"])
+    check("range with from after to rejected",
+          code != 0 and "--from must be earlier than --to" in t)
+    code, t = run([RANGEPREFIX, CHECK_LOG, "--from", "2026-13-05 07:00",
+                   "--to", "2026-10-05 08:00"])
+    check("range with bad time format rejected",
+          code != 0 and "Bad time format" in t)
 
 def other_programs():
     code, text = run([TESTMAP])
@@ -395,6 +447,7 @@ if __name__ == "__main__":
         main_checks()
         edge_checks()
         spike_checks()
+        range_checks()
         other_programs()
     cleanup()
     passed = sum(results)
