@@ -104,6 +104,57 @@ bool testEdgeCases() {
     return thrown == 5 && oneOk;
 }
 
+// Brute force: l se r mein sabse bade value ki PEHLI jagah
+size_t bruteMaxIndex(const std::vector<long long>& a, size_t l, size_t r) {
+    size_t best = l;
+    for (size_t i = l + 1; i <= r; i++) {
+        if (a[i] > a[best]) best = i;      // sirf "bada" par badlo, barabari par nahi
+    }
+    return best;
+}
+
+// maxIndex ka test: values 0 se 3 ke beech, isliye bahut saari barabari (ties)
+bool testMaxIndex() {
+    int sizes[] = {1, 2, 3, 5, 8, 13, 31, 64, 100};
+    for (size_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        int n = sizes[s];
+        std::vector<long long> a(n);
+        for (int i = 0; i < n; i++) a[i] = std::rand() % 4;
+        SegTree t(a);
+        for (size_t l = 0; l < a.size(); l++) {
+            for (size_t r = l; r < a.size(); r++) {
+                if (t.maxIndex(l, r) != bruteMaxIndex(a, l, r)) return false;
+            }
+        }
+        // Kuch badlaav ke baad bhi sahi rahe (set/add ke baad idx_ sahi update ho)
+        for (int k = 0; k < 300; k++) {
+            size_t i = static_cast<size_t>(std::rand() % n);
+            if (k % 2 == 0) {
+                a[i] = std::rand() % 4;
+                t.set(i, a[i]);
+            } else {
+                long long d = (std::rand() % 3) - 1;
+                a[i] += d;
+                t.add(i, d);
+            }
+            size_t l = static_cast<size_t>(std::rand() % n);
+            size_t r = l + static_cast<size_t>(std::rand() % (n - static_cast<int>(l)));
+            if (t.maxIndex(l, r) != bruteMaxIndex(a, l, r)) return false;
+            if (a[t.maxIndex(l, r)] != t.maxValue(l, r)) return false;
+        }
+    }
+    // Sab barabar: hamesha pehli jagah
+    SegTree same(std::vector<long long>(10, 7));
+    if (same.maxIndex(0, 9) != 0 || same.maxIndex(3, 8) != 3) return false;
+    // Sab negative: kNothing wali galti pakadta hai
+    SegTree neg(std::vector<long long>{-5, -2, -9, -2, -7});
+    if (neg.maxIndex(0, 4) != 1 || neg.maxIndex(2, 4) != 3) return false;
+    // Galat range par error
+    bool thrown = false;
+    try { neg.maxIndex(3, 9); } catch (const std::out_of_range&) { thrown = true; }
+    return thrown;
+}
+
 int main() {
     std::srand(5);
     bool ok = true;
@@ -130,6 +181,10 @@ int main() {
     bool edge = testEdgeCases();
     std::cout << "Edge cases and errors: " << (edge ? "OK" : "FAILED") << "\n";
     ok = ok && edge;
+
+    bool idx = testMaxIndex();
+    std::cout << "maxIndex (first maximum, ties, negatives): " << (idx ? "OK" : "FAILED") << "\n";
+    ok = ok && idx;
 
     std::cout << (ok ? "TEST PASSED" : "TEST FAILED") << "\n";
     return ok ? 0 : 1;

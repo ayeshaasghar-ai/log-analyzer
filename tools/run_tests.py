@@ -26,6 +26,7 @@ CHECK_LOG = os.path.join("data", "_check.log")
 EDGE_LOG = os.path.join("data", "_edge.log")
 SPIKE_LOG = os.path.join("data", "_spike.log")
 OOO_LOG = os.path.join("data", "_ooo.log")
+RANGE_LOG = os.path.join("data", "_range.log")
 
 results = []
 
@@ -410,6 +411,104 @@ def range_checks():
     check("range with bad time format rejected",
           code != 0 and "Bad time format" in t)
 
+def python_range_truth(path, from_text, to_text):
+    """Python ka apna hisaab: [from, to) mein ERROR total, aur sabse busy minute.
+    Barabari (tie) mein sabse pehla minute. Kuch na mile to busiest = None."""
+    lo = minute_of(from_text)
+    hi = minute_of(to_text)
+    per_minute = {}
+    with open(path) as f:
+        for line in f:
+            parts = line.split(None, 4)
+            if len(parts) < 3 or parts[2] != "ERROR":
+                continue
+            m = minute_of(parts[0] + " " + parts[1])
+            if lo <= m < hi:
+                per_minute[m] = per_minute.get(m, 0) + 1
+    if not per_minute:
+        return 0, None, 0
+    best_count = max(per_minute.values())
+    best_minute = min(m for m, c in per_minute.items() if c == best_count)
+    label = datetime.fromtimestamp(best_minute * 60, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+    return sum(per_minute.values()), label, best_count
+
+
+def parse_range_output(text):
+    """Tool ke output se (total, busiest_label, busiest_count) nikalo."""
+    m1 = re.search(r"Errors in range:\s+(\d+)", text)
+    total = int(m1.group(1)) if m1 else -1
+    m2 = re.search(r"Busiest minute:\s+(\d{4}-\d\d-\d\d \d\d:\d\d) \((\d+) errors\)", text)
+    if m2:
+        return total, m2.group(1), int(m2.group(2))
+    if re.search(r"Busiest minute:\s+none", text):
+        return total, None, 0
+    return total, "?", -1
+
+
+def range_tool_checks():
+    """Week 5 Day 4: loganalyzer --range (segment tree) ko Python ke hisaab se milao."""
+    ranges = [
+        ("2026-10-05 07:00", "2026-10-05 08:00"),   # poora ek ghanta
+        ("2026-10-05 03:15", "2026-10-05 04:45"),   # 90 minute, beech se shuru
+        ("2026-10-05 00:00", "2026-10-06 00:00"),   # poora din
+        ("2026-10-05 05:10", "2026-10-05 05:11"),   # sirf ek minute
+        ("2025-01-01 00:00", "2025-01-02 00:00"),   # data se bahar
+    ]
+    for a, b in ranges:
+        _, t = run([MAIN, CHECK_LOG, "--range", a, b])
+        got = parse_range_output(t)
+        want = python_range_truth(CHECK_LOG, a, b)
+        check(f"--range [{a}, {b}) = {want[0]}, busiest {want[1]}",
+              got == want, f"tool {got} python {want}")
+
+    # Haath se banayi file: do minute barabari par (tie), sabse pehla minute jeetna chahiye
+    with open(RANGE_LOG, "w") as f:
+        f.write("2026-10-05 10:00:01 ERROR DB_TIMEOUT a\n")
+        f.write("2026-10-05 10:00:30 ERROR DB_TIMEOUT b\n")
+        f.write("2026-10-05 10:01:05 ERROR DISK_FULL c\n")
+        f.write("2026-10-05 10:01:40 ERROR DISK_FULL d\n")
+        f.write("2026-10-05 10:05:00 INFO LOGIN_OK e\n")
+    ok = True
+    detail = ""
+    for a, b in [("2026-10-05 10:00", "2026-10-05 10:10"),
+                 ("2026-10-05 10:01", "2026-10-05 10:10")]:
+        _, t = run([MAIN, RANGE_LOG, "--range", a, b])
+        got = parse_range_output(t)
+        want = python_range_truth(RANGE_LOG, a, b)
+        if got != want:
+            ok = False
+            detail = f"[{a}, {b}) tool {got} python {want}"
+    check("--range tie: earlier minute wins (hand-made file)", ok, detail)
+
+    # Galat calendar wali line (mahina 13, ghanta 99) ab "Bad line" ginni chahiye
+    with open(RANGE_LOG, "w") as f:
+        f.write("2026-10-05 10:00:01 ERROR DB_TIMEOUT a\n")
+        f.write("2026-13-45 99:99:99 ERROR DB_TIMEOUT junk\n")
+        f.write("2026-02-30 10:00:00 ERROR DB_TIMEOUT feb30\n")
+        f.write("2028-02-29 10:00:00 INFO LOGIN_OK leap day is valid\n")
+    _, t = run([MAIN, RANGE_LOG])
+    check("calendar validation: month 13 and Feb 30 are Bad lines, leap day is fine",
+          parse_summary(t) == (2, 2, 0), str(parse_summary(t)))
+
+    # Bahut lamba gap (purani tareekh) ho to crash nahi, saaf message
+    with open(RANGE_LOG, "w") as f:
+        f.write("2026-10-05 10:00:01 ERROR DB_TIMEOUT a\n")
+        f.write("0001-01-01 00:00:00 ERROR DB_TIMEOUT ancient\n")
+    code, t = run([MAIN, RANGE_LOG, "--range", "2026-10-05 10:00", "2026-10-05 11:00"])
+    check("--range with huge time gap: clean message, no crash",
+          code == 0 and "Cannot answer" in t, t[-200:])
+
+    code, t = run([MAIN, CHECK_LOG, "--range", "2026-10-05 08:00", "2026-10-05 07:00"])
+    check("--range with first time not earlier rejected",
+          code != 0 and "must be earlier" in t)
+    code, t = run([MAIN, CHECK_LOG, "--range", "2026-02-30 07:00", "2026-10-05 08:00"])
+    check("--range with impossible date rejected",
+          code != 0 and "Bad time format" in t)
+    code, t = run([MAIN, CHECK_LOG, "--range", "2026-10-05 07:00"])
+    check("--range with only one time rejected",
+          code != 0 and "--range needs two times" in t)
+
+
 def other_programs():
     code, text = run([TESTMAP])
     check("test_hashmap: TEST PASSED", code == 0 and "TEST PASSED" in text, text[:200])
@@ -440,7 +539,7 @@ def other_programs():
 
 
 def cleanup():
-    for p in (CHECK_LOG, EDGE_LOG, SPIKE_LOG, OOO_LOG):
+    for p in (CHECK_LOG, EDGE_LOG, SPIKE_LOG, OOO_LOG, RANGE_LOG):
         if os.path.exists(p):
             os.remove(p)
 
@@ -453,6 +552,7 @@ if __name__ == "__main__":
         edge_checks()
         spike_checks()
         range_checks()
+        range_tool_checks()
         other_programs()
     cleanup()
     passed = sum(results)

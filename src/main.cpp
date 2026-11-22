@@ -6,10 +6,12 @@
 #include <vector>
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
 #include "hashmap.h"
 #include "minheap.h"
 #include "timeutil.h"
 #include "ringdeque.h"
+#include "segtree.h"
 
 struct LogEntry {
     std::string date;
@@ -35,6 +37,16 @@ bool isValidLevel(const std::string& level) {
     return level == "INFO" || level == "WARN" || level == "ERROR";
 }
 
+bool isLeapYear(int y) {
+    return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+}
+
+int daysInMonth(int y, int m) {
+    static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (m == 2 && isLeapYear(y)) return 29;
+    return days[m - 1];
+}
+
 bool isValidDate(const std::string& d) {
     if (d.size() != 10) return false;
     for (size_t i = 0; i < d.size(); i++) {
@@ -44,6 +56,12 @@ bool isValidDate(const std::string& d) {
             return false;
         }
     }
+    // Asli calendar: mahina 1-12, din us mahine ke andar (leap year ke saath)
+    int year  = std::stoi(d.substr(0, 4));
+    int month = std::stoi(d.substr(5, 2));
+    int day   = std::stoi(d.substr(8, 2));
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > daysInMonth(year, month)) return false;
     return true;
 }
 
@@ -56,7 +74,11 @@ bool isValidTime(const std::string& t) {
             return false;
         }
     }
-    return true;
+    // Asli ghadi: ghanta 00-23, minute 00-59, second 00-59
+    int hour   = std::stoi(t.substr(0, 2));
+    int minute = std::stoi(t.substr(3, 2));
+    int second = std::stoi(t.substr(6, 2));
+    return hour <= 23 && minute <= 59 && second <= 59;
 }
 
 bool parseLine(const std::string& rawLine, LogEntry& e) {
@@ -164,6 +186,103 @@ std::vector<Alert> mergeAlerts(const std::vector<Alert>& in, long long gap) {
     return out;
 }
 
+// ---------- Week 5 Day 4: --range ke liye helpers ----------
+
+// "2026-10-05 07:00" ko 1970 se minutes mein badlo. Format ya tareekh galat ho to false.
+bool parseMinute(const std::string& text, long long& outMinute) {
+    if (text.size() != 16) return false;
+    if (text[4] != '-' || text[7] != '-' || text[10] != ' ' || text[13] != ':') return false;
+    for (size_t i = 0; i < text.size(); i++) {
+        if (i == 4 || i == 7 || i == 10 || i == 13) continue;
+        if (text[i] < '0' || text[i] > '9') return false;
+    }
+    int year   = std::stoi(text.substr(0, 4));
+    int month  = std::stoi(text.substr(5, 2));
+    int day    = std::stoi(text.substr(8, 2));
+    int hour   = std::stoi(text.substr(11, 2));
+    int minute = std::stoi(text.substr(14, 2));
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > daysInMonth(year, month)) return false;
+    if (hour > 23 || minute > 59) return false;
+    outMinute = toEpochSeconds(text.substr(0, 10), text.substr(11, 5) + ":00") / 60;
+    return true;
+}
+
+// Ulta kaam: 1970 se minutes ko "YYYY-MM-DD HH:MM" mein badlo.
+// (din ko tareekh mein badalne ka standard civil-from-days tareeka)
+std::string minuteLabel(long long minute) {
+    long long days = minute / 1440;
+    long long inDay = minute % 1440;
+    long long z = days + 719468;
+    long long era = (z >= 0 ? z : z - 146096) / 146097;
+    long long doe = z - era * 146097;
+    long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    long long mp = (5 * doy + 2) / 153;
+    int d = static_cast<int>(doy - (153 * mp + 2) / 5 + 1);
+    int m = static_cast<int>(mp < 10 ? mp + 3 : mp - 9);
+    int y = static_cast<int>(yoe + era * 400 + (m <= 2 ? 1 : 0));
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
+                  y, m, d, static_cast<int>(inDay / 60), static_cast<int>(inDay % 60));
+    return std::string(buf);
+}
+
+// Range query: [fromMin, toMin) mein kitne ERROR aur sabse busy minute kaun sa.
+// Har ERROR ka minute errorMinutes mein hai. Segment tree: har minute ek bucket.
+void printRange(const std::vector<long long>& errorMinutes, long long fromMin, long long toMin,
+                const std::string& fromText, const std::string& toText) {
+    std::cout << "Range query [" << fromText << ", " << toText << ")  ("
+              << (toMin - fromMin) << " minutes):\n";
+
+    if (errorMinutes.empty()) {
+        std::cout << "  Errors in range: 0\n";
+        std::cout << "  Busiest minute:  none\n";
+        return;
+    }
+
+    long long firstMin = *std::min_element(errorMinutes.begin(), errorMinutes.end());
+    long long lastMin = *std::max_element(errorMinutes.begin(), errorMinutes.end());
+    size_t buckets = static_cast<size_t>(lastMin - firstMin + 1);
+
+    // Pehle aur aakhri error ke beech bahut lamba gap (galat tareekh wali line) ho to
+    // minute-buckets ka tree bahut bada ban jata. Isliye hadd: 1,000,000 minute (~694 din).
+    const size_t kMaxBuckets = 1000000;
+    if (buckets > kMaxBuckets) {
+        std::cout << "  Cannot answer: errors span " << buckets
+                  << " minutes (limit " << kMaxBuckets
+                  << "). Check the log for lines with a wrong date.\n";
+        return;
+    }
+
+    std::vector<long long> counts(buckets, 0);
+    for (size_t i = 0; i < errorMinutes.size(); i++) {
+        counts[static_cast<size_t>(errorMinutes[i] - firstMin)]++;
+    }
+    SegTree tree(counts);
+
+    // Maange hue range ko data ke andar tak kaato, phir [from, to) ko [l, r] banao
+    long long lo = std::max(fromMin, firstMin);
+    long long hi = std::min(toMin - 1, lastMin);
+    if (lo > hi) {
+        std::cout << "  Errors in range: 0\n";
+        std::cout << "  Busiest minute:  none\n";
+        return;
+    }
+    size_t l = static_cast<size_t>(lo - firstMin);
+    size_t r = static_cast<size_t>(hi - firstMin);
+
+    long long total = tree.sum(l, r);
+    std::cout << "  Errors in range: " << total << "\n";
+    if (tree.maxValue(l, r) == 0) {
+        std::cout << "  Busiest minute:  none\n";
+    } else {
+        size_t at = tree.maxIndex(l, r);
+        std::cout << "  Busiest minute:  " << minuteLabel(firstMin + static_cast<long long>(at))
+                  << " (" << tree.maxValue(l, r) << " errors)\n";
+    }
+}
+
 int main(int argc, char* argv[]) {
     std::string path = "data/sample.log";
     bool show = false;
@@ -172,6 +291,11 @@ int main(int argc, char* argv[]) {
     int spikeWindow = 0;
     int spikeThreshold = 0;
     int mergeGap = 0;
+    bool useRange = false;
+    std::string rangeFromText;
+    std::string rangeToText;
+    long long rangeFromMin = 0;
+    long long rangeToMin = 0;
     std::string queryCode;
 
     for (int i = 1; i < argc; i++) {
@@ -207,6 +331,22 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--merge") {
             std::cerr << "--merge needs a positive number of seconds\n";
             return 1;
+        } else if (arg == "--range" && i + 2 < argc) {
+            rangeFromText = argv[++i];
+            rangeToText = argv[++i];
+            if (!parseMinute(rangeFromText, rangeFromMin) || !parseMinute(rangeToText, rangeToMin)) {
+                std::cerr << "Bad time format (use YYYY-MM-DD HH:MM): "
+                          << rangeFromText << " / " << rangeToText << "\n";
+                return 1;
+            }
+            if (rangeFromMin >= rangeToMin) {
+                std::cerr << "--range: first time must be earlier than the second\n";
+                return 1;
+            }
+            useRange = true;
+        } else if (arg == "--range") {
+            std::cerr << "--range needs two times: \"YYYY-MM-DD HH:MM\" \"YYYY-MM-DD HH:MM\"\n";
+            return 1;
         } else if (arg.rfind("--", 0) == 0) {
             std::cerr << "Unknown option: " << arg << "\n";
             return 1;
@@ -241,6 +381,7 @@ int main(int argc, char* argv[]) {
     long long lastTs = 0;
     std::string lastStamp;
     int outOfOrder = 0;
+    std::vector<long long> errorMinutes;   // --range ke liye: har ERROR ka minute
 
     while (std::getline(file, line)) {
         if (line.find_first_not_of(" \t\r") == std::string::npos) {
@@ -309,6 +450,9 @@ int main(int argc, char* argv[]) {
             errors++;
             errorCodeCount.increment(e.code);
             errorsPerHour.increment(e.date + " " + e.time.substr(0, 2));
+            if (useRange) {
+                errorMinutes.push_back(toEpochSeconds(e.date, e.time) / 60);
+            }
         } else if (e.level == "WARN") {
             warns++;
         } else {
@@ -384,6 +528,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Out-of-order lines skipped for spike detection: "
                       << outOfOrder << "\n";
         }
+    }
+
+    if (useRange) {
+        printRange(errorMinutes, rangeFromMin, rangeToMin, rangeFromText, rangeToText);
     }
 
     if (!queryCode.empty()) {
