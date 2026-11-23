@@ -57,6 +57,7 @@ def compile_all():
         ("src/bench_window.cpp", "bench_window"),
         ("src/range_prefix.cpp", "range_prefix"),
         ("src/test_segtree.cpp", "test_segtree"),
+        ("src/bench_range.cpp", "bench_range"),
     ]
     for src, out in jobs:
         code, text = run(["g++", "-std=c++17", "-O2", src, "-o", out + EXE])
@@ -536,6 +537,20 @@ def other_programs():
     code, text = run([BENCHWIN, CHECK_LOG])
     check("bench_window: all methods agree",
           code == 0 and "All methods agree: YES" in text, text[-200:])
+
+    code, text = run([
+        os.path.join(ROOT, "bench_range" + EXE),
+        CHECK_LOG
+    ])
+
+    check(
+        "bench_range: all methods agree",
+        code == 0
+        and "Range Sum methods agree: YES" in text
+        and "Range Max methods agree: YES" in text
+        and "BENCHMARK PASSED" in text,
+        text[-300:]
+    )
 
 
 def cleanup():
