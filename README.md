@@ -351,3 +351,7 @@ The following screenshots demonstrate the project's development and testing prog
 ![Week 5 Range Query](screenshots/week5-range.png)
 
 ![Week 5 Segment Tree Tests](screenshots/week5-segtree-test.png)
+
+![Week 5 Final Automated Tests](screenshots/week5-final-tests.png)
+
+![Week 5 Range Benchmark](screenshots/week5-benchmark.png)
