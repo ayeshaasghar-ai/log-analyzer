@@ -310,3 +310,44 @@ Through this project, I practiced:
 - Comparing algorithms through repeatable benchmarks.
 - Writing automated tests and checking edge cases.
 - Using Git and GitHub to manage project development.
+
+## Project Screenshots
+
+The following screenshots demonstrate the project's development and testing progress from Week 1 to Week 5.
+
+### Week 1: Log Analyzer
+![Week 1 Demo](screenshots/week1-demo.png)
+
+### Week 2: Hash Map Implementation
+![Week 2 Demo](screenshots/week2-demo.png)
+
+![Week 2 Tests](screenshots/week2-tests.png)
+
+![Week 2 Benchmark](screenshots/week2-benchmark.png)
+
+### Week 3: Heap and Top K Analysis
+![Week 3 Demo](screenshots/week3-demo.png)
+
+![Week 3 Tests](screenshots/week3_tests.png)
+
+![Week 3 Benchmark](screenshots/week3-benchmark.png)
+
+![Week 3 Fresh Clone](screenshots/week3-fresh-clone.png)
+
+### Week 4: Sliding Window and Spike Detection
+![Week 4 Spike Detection](screenshots/week4-spike.png)
+
+![Week 4 Merge](screenshots/week4-merge.png)
+
+![Week 4 Tests](screenshots/week4-tests.png)
+
+![Week 4 Benchmark](screenshots/week4-benchmark.png)
+
+![Week 4 Final Tests](screenshots/week4-final-tests.png)
+
+![Week 4 Fresh Clone](screenshots/week4-fresh-clone.png)
+
+### Week 5: Segment Tree and Range Queries
+![Week 5 Range Query](screenshots/week5-range.png)
+
+![Week 5 Segment Tree Tests](screenshots/week5-segtree-test.png)
